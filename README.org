@@ -1,0 +1,121 @@
+#+TITLE: loophabits — Loop Habit Tracker features on plain Org files
+#+STARTUP: showall
+
+ALL the features of [[https://github.com/iSoron/uhabits][Loop Habit Tracker]] (iSoron/uhabits), on one plain
+Org file — so [[https://github.com/khaalidrafi/emacshell][Emacs on Android]] doubles as your habit tracker (Owner
+order 2026-11-15).  The scoring and streak math is the REAL Loop
+algorithm, read from the uhabits core (Score.kt / StreakList.kt /
+Entry.kt, 2026-11-15):
+
+: multiplier = 0.5 ^ (sqrt(frequency) / 13)
+: score      = previous * multiplier + checkmark * (1 - multiplier)
+
+No limits, no accounts, no network: your habits are one text file you
+can read with anything, diff, sync and keep forever.
+
+* Feature map (Loop -> here)
+
+| Loop feature | loophabits |
+|---+---|
+| yes/no habits | habits with =:TYPE: yesno= (the default) |
+| measurable habits | =:TYPE: measurable= + =:TARGET: n= + =:UNIT: pages= |
+| at-most habits ("less is better") | =:TYPE: measurable-at-most= |
+| flexible schedules (daily, weekly, 3/7, 1/14, weekday sets) | =:FREQ: N/D= (weekday sets map to N/7) |
+| habit score (the ring) | exact Loop recurrence, =loophabits-score= |
+| streaks (current + best) | =loophabits-streaks=; non-due days bridge automatically |
+| history (365-day grid) | =loophabits-show-details= |
+| per-weekday stats | details buffer, last 12 weeks, due days only |
+| reminders | =:REMINDER: HH:MM= + Android notifications (=loophabits-start-reminders=) |
+| home-screen widgets (tap to check) | the [[https://github.com/khaalidrafi/elwidget][elwidget]] =org-habits= widget |
+| check marks on the main list | dashboard =SPC= toggle, =s= skip, =v= value, =N= note |
+| archive / reorder / pause | =a= archive, =:ORDER:=, =p= pause (= :PAUSED: yes :) |
+| export (CSV backups) | =loophabits-export-csv= |
+| full JSON backup + restore | =loophabits-export-json= / =loophabits-import-json= |
+
+* The file format
+
+One org file (default =~/org/habits.org=, =loophabits-file=); each habit
+is a level-1 heading with a property drawer and a LOGBOOK of entries:
+
+#+begin_src org
+,* Read a book                                             :habit:
+:PROPERTIES:
+:TYPE: yesno
+:FREQ: 1/1
+:COLOR: #7dcfff
+:REMINDER: 21:30
+:END:
+:LOGBOOK:
+- [2026-11-15 Sat 21:32] 1
+- [2026-11-14 Fri] s   was traveling
+:END:
+#+end_src
+
+Entry lines are =- [DATE [TIME]] VALUE [note]= where VALUE is =1=
+(yes), =0= (no), =s= (skip: not applicable, no score change), =q=
+(questionable) or a number (measurable habits).  Edit the file by
+hand, from Org, or through the package — they stay in sync (the
+package re-reads on mtime change).
+
+* The dashboard
+
+=M-x loophabits= — Loop's main screen: one line per active habit with
+today's mark, frequency, current streak, score and measurable value.
+
+| key | action |
+|---+---|
+| =SPC= | toggle today (cycles none -> yes -> skip -> no; Loop's nextToggleValue) |
+| =s= | skip today |
+| =v= | set a numeric value (measurable habits) |
+| =N= | attach a note to today's check-in |
+| =RET= | details: score, streaks, per-weekday rates, 365-day history grid |
+| =n= | new habit (name, type, target, unit, frequency, color, reminder) |
+| =a= | archive the habit at point |
+| =p= | pause / unpause |
+| =o= | open the raw org file |
+| =g= | refresh |
+
+* Reminders
+
+Add =:REMINDER: HH:MM= to a habit, then:
+
+#+begin_src emacs-lisp
+(loophabits-start-reminders)   ; check every minute
+#+end_src
+
+On Emacs for Android reminders arrive as real Android notifications
+(=android-notifications-notify=); on desktop via =notifications-notify=;
+in a terminal they degrade to messages.  A habit only reminds when it
+is due, uncompleted, unpaused and unskipped — and at most once per
+day.
+
+* Home-screen widget (Android)
+
+Install [[https://github.com/khaalidrafi/elwidget][elwidget]]; its =org-habits= widget renders this package's habit
+list with tappable check marks straight onto the Android home screen
+(soft dependency: without elwidget nothing here breaks).
+
+* Install
+
+Emacs 27.1+, no external packages — org and json are built in:
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/to/loophabits")
+(require 'loophabits)
+(loophabits)                      ; the dashboard
+#+end_src
+
+In emacshell the package ships inside the APK
+(~site-lisp/loophabits/~ on the load-path) — nothing to install.
+
+* Development
+
+#+begin_src sh
+make compile    # byte-compile, warnings are errors
+make test       # 21 offline ERT tests (storage, score math, streaks,
+                # toggle cycles, archive, CSV/JSON round-trips, widget)
+#+end_src
+
+* License
+
+GPL-3.0-or-later.
