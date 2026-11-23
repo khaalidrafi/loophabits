@@ -374,3 +374,100 @@
 
 (provide 'test-loophabits)
 ;;; test-loophabits.el ends here
+
+;;; --- elwidget widgets (v0.2) ---------------------------------------------------
+
+(ert-deftest loophabits--on-event-toggles ()
+  "A \"toggle\" tap flips the habit for today and asks for a refresh."
+  (with-loophabits-sandbox
+   (lh-test--make)
+   (should (loophabits--on-event "toggle" "Test habit"))
+   (should (lh-completed-p (loophabits-find "Test habit") (lh-today)))
+   (should-not (loophabits--on-event "other" "Test habit"))))
+
+(ert-deftest loophabits--today-tree-shape ()
+  "Header row with done/total progress + one tappable check per habit."
+  (with-loophabits-sandbox
+   (lh-test--make :color "#ff0000")
+   (loophabits-new "Second" :type 'measurable :target 10 :unit "pages")
+   (loophabits-set (loophabits-find "Test habit") (lh-today) 1)
+   (let ((tree (loophabits--today-tree)))
+     ;; Header row: "Habits 1/2" text + a progress node.
+     (let ((header (nth 0 tree)))
+       (should (eq :row (car header)))
+       (should (cl-some (lambda (n) (and (eq (car n) :text)
+                                         (string-match "Habits 1/2" (nth 1 n))))
+                        (cdr header)))
+       (should (cl-some (lambda (n) (eq (car n) :progress)) (cdr header))))
+     ;; Check row: one check per active habit, toggle action, name arg.
+     ;; (--active sorts by :ORDER: then name, so assert by :arg, not position.)
+     (let* ((row (nth 1 tree))
+            (checks (cl-remove-if-not (lambda (n) (eq (car n) :check)) (cdr row)))
+            (by-arg (lambda (name)
+                      (cl-find-if (lambda (c) (equal (plist-get (cddr c) :arg)
+                                                     name))
+                                  checks))))
+       (should (eq :row (car row)))
+       (should (equal 2 (length checks)))
+       (should (equal t (nth 1 (funcall by-arg "Test habit"))))     ; done
+       (should (equal 'off (nth 1 (funcall by-arg "Second"))))      ; not done
+       (dolist (c checks)
+         (should (equal "toggle" (plist-get (cddr c) :action))))))))
+
+(ert-deftest loophabits--today-tree-empty-and-overflow ()
+  "No habits: friendly text.  More than six: a +N counter, six checks."
+  (with-loophabits-sandbox
+   (let ((tree (loophabits--today-tree)))
+     (should (cl-some (lambda (n) (and (eq (car n) :text)
+                                       (string-match "No habits" (nth 1 n))))
+                      tree)))
+   (dotimes (i 8)
+     (loophabits-new (format "H%d" i)))
+   (let* ((tree (loophabits--today-tree))
+          (row (nth 1 tree))
+          (checks (cl-remove-if-not (lambda (n) (eq (car n) :check)) (cdr row)))
+          (texts (cl-remove-if-not (lambda (n) (eq (car n) :text)) (cdr row))))
+     (should (equal 6 (length checks)))
+     (should (cl-some (lambda (n) (equal "+2" (nth 1 n))) texts)))))
+
+(ert-deftest loophabits--progress-tree-shape ()
+  "Measurable habits render value/target bars; yesno ones stay out."
+  (with-loophabits-sandbox
+   (lh-test--make)                       ; yesno: not in this widget
+   (loophabits-new "Read" :type 'measurable :target 30 :unit "pages"
+                   :color "#ff0000")
+   (loophabits-new "Water" :type 'measurable :target 8 :unit "glasses")
+   (loophabits-set (loophabits-find "Read") (lh-today) 12)
+   (let ((tree (loophabits--progress-tree)))
+     (let ((bars (cl-remove-if-not (lambda (n) (eq (car n) :row)) (cdr tree))))
+       (should (equal 2 (length bars)))
+       (let ((read-bar (cl-find-if
+                        (lambda (n) (cl-some (lambda (c)
+                                                (and (eq (car c) :progress)
+                                                     (equal 12 (plist-get (cdr c) :value))))
+                                              (cdr n)))
+                        bars)))
+         (should read-bar)
+         (let ((prog (cl-find-if (lambda (c) (eq (car c) :progress))
+                                 (cdr read-bar))))
+           (should (equal 30 (plist-get (cdr prog) :max)))
+           (should (string-match "12/30 pages" (plist-get (cdr prog) :label)))
+           (should (equal "#ff0000" (plist-get (cdr prog) :color))))))))
+  ;; Zero progress renders 0/target honestly.
+  (with-loophabits-sandbox
+   (loophabits-new "Walk" :type 'measurable :target 5000 :unit "steps")
+   (let ((tree (loophabits--progress-tree)))
+     (should (cl-some (lambda (n) (and (eq (car n) :row)
+                                       (cl-some (lambda (c)
+                                                  (and (eq (car c) :progress)
+                                                       (zerop (plist-get (cdr c) :value))))
+                                                (cdr n))))
+                      (cdr tree)))))
+  ;; No measurable habits at all: the friendly text, no bars.
+  (with-loophabits-sandbox
+   (loophabits-new "Meditate")
+   (let ((tree (loophabits--progress-tree)))
+     (should (cl-some (lambda (n) (and (eq (car n) :text)
+                                       (string-match "No measurable" (nth 1 n))))
+                      tree))
+     (should-not (cl-some (lambda (n) (eq (car n) :row)) (cdr tree))))))

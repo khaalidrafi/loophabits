@@ -26,7 +26,7 @@ can read with anything, diff, sync and keep forever.
 | history (365-day grid) | =loophabits-show-details= |
 | per-weekday stats | details buffer, last 12 weeks, due days only |
 | reminders | =:REMINDER: HH:MM= + Android notifications (=loophabits-start-reminders=) |
-| home-screen widgets (tap to check) | the [[https://github.com/khaalidrafi/elwidget][elwidget]] =org-habits= widget |
+| home-screen widgets (tap to check) | three elwidget specs via =loophabits-register-widgets=, plus the =org-habits= delegation |
 | check marks on the main list | dashboard =SPC= toggle, =s= skip, =v= value, =N= note |
 | archive / reorder / pause | =a= archive, =:ORDER:=, =p= pause (= :PAUSED: yes :) |
 | export (CSV backups) | =loophabits-export-csv= |
@@ -89,11 +89,29 @@ in a terminal they degrade to messages.  A habit only reminds when it
 is due, uncompleted, unpaused and unskipped — and at most once per
 day.
 
-* Home-screen widget (Android)
+* Home-screen widgets (Android)
 
-Install [[https://github.com/khaalidrafi/elwidget][elwidget]]; its =org-habits= widget renders this package's habit
-list with tappable check marks straight onto the Android home screen
-(soft dependency: without elwidget nothing here breaks).
+Install elwidget (emacshell ships it; https://github.com/khaalidrafi/elwidget)
+and register the widgets once:
+
+#+begin_src emacs-lisp
+(loophabits-register-widgets)
+(elwidget-refresh)
+#+end_src
+
+Three specs land on the home screen, all tap-to-check with instant
+flips (the Android side flips the shadow state; Emacs confirms on
+the next sync):
+
+| Spec | Size | Shows |
+|---|---|---|
+| =loophabits= | 4x3 | the full habit list: checks, streaks, scores |
+| =loophabits-today= | 4x1 | one row of checks + a done/total progress bar |
+| =loophabits-progress= | 4x2 | measurable habits as today's value/target bars |
+
+elwidget's own =org-habits= widget delegates to the same list, so
+both entry points stay in sync (soft dependency: without elwidget
+nothing here breaks).
 
 * Install
 
@@ -105,8 +123,9 @@ Emacs 27.1+, no external packages — org and json are built in:
 (loophabits)                      ; the dashboard
 #+end_src
 
-In emacshell the package ships inside the APK
-(~site-lisp/loophabits/~ on the load-path) — nothing to install.
+Personal config on top of emacshell: the package installs as an
+ordinary package from your config repo (emacshell's APK deliberately
+carries no personal packages — 2026-11-18 scope law).
 
 * Development
 

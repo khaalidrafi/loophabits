@@ -2,7 +2,7 @@
 
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;; Author: GLM 5.3 <glm-5.3@z.ai>
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: habits, org, tools
 
@@ -31,8 +31,10 @@
 ;;   reminders .................... :REMINDER: HH:MM + Android
 ;;                                  notifications (android-notifications-
 ;;                                  notify) or desktop notifications
-;;   widgets ...................... the elwidget org-habits widget (tap
-;;                                  to check from the home screen)
+;;   widgets ...................... three elwidget specs (full list,
+;;                                  today's checks + progress, measurable
+;;                                  bars) via loophabits-register-widgets,
+;;                                  plus the org-habits delegation
 ;;   notes on checkmarks .......... text after the value in the LOGBOOK
 ;;   skip (not applicable) ........ value `s' -- excluded from the
 ;;                                  scoring window, does not break streaks
@@ -872,6 +874,10 @@ nextToggleValue).  Measurable habits jump between 0 and the target."
 
 ;;; --- elwidget integration ----------------------------------------------------
 
+;; Soft dependency: elwidget ships in emacshell and installs anywhere
+;; else as an ordinary package; nothing here loads without it.
+(declare-function elwidget-define "elwidget" (name &rest props))
+
 (defun loophabits-elwidget-tree ()
   "The org-habits widget tree (for elwidget-org)."
   (let ((nodes (list '(:text "Habits" :size 16 :bold t :color "#89b4fa"))))
@@ -897,11 +903,110 @@ nextToggleValue).  Measurable habits jump between 0 and the target."
     nodes))
 
 (defun loophabits-elwidget-state ()
-  "Shadow state for the widget (habit name -> done-today 0/1)."
+  "Shadow state for the widgets (habit name -> done-today 0/1)."
   (mapcar (lambda (h)
             (cons (lh/habit-name h)
                   (if (lh-completed-p h (lh-today)) 1 0)))
           (loophabits-load)))
+
+(defun loophabits--on-event (action arg)
+  "Handle a widget tap: \"toggle\" flips habit ARG (its name)."
+  (when (equal action "toggle")
+    (loophabits-toggle arg)
+    t))
+
+(defun loophabits--today-tree ()
+  "Compact one-line tree: a tappable check per active habit.
+Header row carries the done/total progress bar (Loop's \"today\"
+ring, as a bar).  At most six checks fit a 4x1 widget; the rest
+count behind a \"+N\" text."
+  (let* ((active (loophabits--active))
+         (today (lh-today))
+         (done (cl-count-if (lambda (h) (lh-completed-p h today)) active))
+         (total (length active))
+         (shown (seq-take active 6))
+         (more (- total (length shown))))
+    (append
+     (list `(:row (:text ,(format "Habits %d/%d" done total)
+                          :size 13 :bold t :color "#89b4fa")
+                 (:progress :value ,done :max ,(max 1 total)
+                            :label ,(if (zerop total)
+                                        "—"
+                                      (format "%d%%"
+                                              (round (* 100 (/ (float done) total)))))
+                            :color "#a6e3a1")))
+     (if (null active)
+         (list '(:text "No habits yet -- M-x loophabits" :size 12))
+       (list (append
+              '(:row)
+              (mapcar (lambda (h)
+                        `(:check ,(if (lh-completed-p h today) t 'off)
+                                 :action "toggle" :arg ,(lh/habit-name h)
+                                 :color ,(lh/habit-color h)))
+                      shown)
+              (when (> more 0)
+                (list `(:text ,(format "+%d" more) :size 11
+                              :color "#a6adc8")))))))))
+
+(defun loophabits--progress-tree ()
+  "Measurable habits as today's value/target progress bars."
+  (let ((nodes (list '(:text "Today" :size 14 :bold t :color "#89b4fa")))
+        (any nil))
+    (dolist (h (loophabits--active))
+      (when (memq (lh/habit-type h) '(measurable measurable-at-most))
+        (setq any t)
+        (let* ((raw (lh-computed-value h (lh-today)))
+               ;; computed-value yields the symbols yes/no/auto for
+               ;; habit-day states, numbers only for actual entries;
+               ;; the bar wants today's entered value, 0 otherwise.
+               (v (if (numberp raw) raw 0))
+               (target (lh/habit-target h))
+               (bar-max (max 1 target)))
+          (nconc nodes
+                 (list
+                  `(:row (:text ,(truncate-string-to-width
+                                  (lh/habit-name h) 14 nil nil "...")
+                                :size 12)
+                         (:progress
+                          :value ,(min v bar-max) :max ,bar-max
+                          :label ,(format "%s/%s %s" v target
+                                          (or (lh/habit-unit h) ""))
+                          :color ,(lh/habit-color h))))))))
+    (unless any
+      (nconc nodes (list '(:text "No measurable habits" :size 12))))
+    nodes))
+
+;;;###autoload
+(defun loophabits-register-widgets ()
+  "Define the loophabits home-screen widgets (requires elwidget).
+
+Three specs, all tap-to-check with instant shadow-state flips:
+
+  loophabits          4x3  the full habit list (checks, streaks,
+                           scores) -- the same tree elwidget-org's
+                           org-habits widget delegates to
+  loophabits-today    4x1  one row of checks + done/total progress
+  loophabits-progress 4x2  measurable habits as value/target bars
+
+Call it once from your init (emacshell: after loading loophabits),
+then `M-x elwidget-refresh' and pick the specs in the Android
+widget picker."
+  (interactive)
+  (unless (require 'elwidget nil t)
+    (user-error "The elwidget package is required for the widgets"))
+  (elwidget-define "loophabits"
+    :title "Loophabits (tap to check)" :size [4 3]
+    :render #'loophabits-elwidget-tree
+    :on-event #'loophabits--on-event
+    :state #'loophabits-elwidget-state)
+  (elwidget-define "loophabits-today"
+    :title "Habits today" :size [4 1]
+    :render #'loophabits--today-tree
+    :on-event #'loophabits--on-event
+    :state #'loophabits-elwidget-state)
+  (elwidget-define "loophabits-progress"
+    :title "Measurable habits today" :size [4 2]
+    :render #'loophabits--progress-tree))
 
 ;;; --- Export / import ----------------------------------------------------------
 
