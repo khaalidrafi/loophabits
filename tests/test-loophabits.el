@@ -471,3 +471,80 @@
                                        (string-match "No measurable" (nth 1 n))))
                       tree))
      (should-not (cl-some (lambda (n) (eq (car n) :row)) (cdr tree))))))
+
+;;; --- widget steppers: tick AND edit numbers from the home screen --------------
+
+(ert-deftest loophabits-bump-measurable ()
+  "Bumping a measurable habit adds to today's entry, floored at zero."
+  (with-loophabits-sandbox
+   (loophabits-new "Read" :type 'measurable :target 30 :unit "pages")
+   (should (equal 3 (loophabits-bump "Read" 3)))
+   (should (equal 3 (lh-entry-value (loophabits-find "Read") (lh-today))))
+   (should (equal 7 (loophabits-bump "Read" 4)))
+   ;; floors at zero, never negative
+   (should (equal 0 (loophabits-bump "Read" -10)))
+   (should (equal 0 (lh-entry-value (loophabits-find "Read") (lh-today))))))
+
+(ert-deftest loophabits-bump-yesno ()
+  "Bumping a yes/no habit marks it done (positive) or not (negative)."
+  (with-loophabits-sandbox
+   (lh-test--make)
+   (should (equal 1 (loophabits-bump "Test habit" 1)))
+   (should (lh-completed-p (loophabits-find "Test habit") (lh-today)))
+   (should (equal 0 (loophabits-bump "Test habit" -1)))
+   (should-not (lh-completed-p (loophabits-find "Test habit") (lh-today)))))
+
+(ert-deftest loophabits--on-event-inc-dec ()
+  "Widget stepper events adjust the habit behind the #value arg."
+  (with-loophabits-sandbox
+   (loophabits-new "Read" :type 'measurable :target 30 :unit "pages")
+   (let ((arg (loophabits--value-arg "Read")))
+     (should (loophabits--on-event "inc" arg))
+     (should (loophabits--on-event "inc" arg))
+     (should (equal 2 (lh-entry-value (loophabits-find "Read") (lh-today))))
+     (should (loophabits--on-event "dec" arg))
+     (should (equal 1 (lh-entry-value (loophabits-find "Read") (lh-today))))
+     ;; plain names (no suffix) still resolve
+     (should (loophabits--on-event "inc" "Read"))
+     (should (equal 2 (lh-entry-value (loophabits-find "Read") (lh-today)))))))
+
+(ert-deftest loophabits--progress-tree-steppers ()
+  "Each measurable row carries - and + buttons and a tappable bar."
+  (with-loophabits-sandbox
+   (loophabits-new "Read" :type 'measurable :target 30 :unit "pages"
+                   :color "#ff0000")
+   (loophabits-set (loophabits-find "Read") (lh-today) 12)
+   (let* ((tree (loophabits--progress-tree))
+          (row (cl-find-if (lambda (n) (eq (car n) :row)) (cdr tree)))
+          (kids (cdr row))
+          (minus (cl-find-if (lambda (c) (eq (car c) :button)) kids))
+          (plus (cl-find-if (lambda (c) (and (eq (car c) :button)
+                                              (equal "+" (nth 1 c))))
+                            kids))
+          (bar (cl-find-if (lambda (c) (eq (car c) :progress)) kids)))
+     (should (equal "-" (nth 1 minus)))
+     (should (equal "dec" (plist-get (cddr minus) :action)))
+     (should (equal (loophabits--value-arg "Read")
+                    (plist-get (cddr minus) :arg)))
+     (should plus)
+     (should (equal "inc" (plist-get (cddr plus) :action)))
+     (should (equal "inc" (plist-get (cdr bar) :action)))
+     (should (equal (loophabits--value-arg "Read")
+                    (plist-get (cdr bar) :arg)))
+     ;; fmt template with the live value substituted as the label
+     (should (equal "{v}/30 pages" (plist-get (cdr bar) :fmt)))
+     (should (equal "12/30 pages" (plist-get (cdr bar) :label))))))
+
+(ert-deftest loophabits-elwidget-state-value-keys ()
+  "Measurable habits shadow both the check key and the #value key."
+  (with-loophabits-sandbox
+   (lh-test--make)
+   (loophabits-new "Read" :type 'measurable :target 30 :unit "pages")
+   (loophabits-set (loophabits-find "Read") (lh-today) 12)
+   (let ((state (loophabits-elwidget-state)))
+     ;; yesno: one key, 0/1
+     (should (equal 0 (cdr (assoc "Test habit" state))))
+     (should-not (assoc (loophabits--value-arg "Test habit") state))
+     ;; measurable: done-today 0/1 AND the numeric value
+     (should (equal 0 (cdr (assoc "Read" state))))
+     (should (equal 12 (cdr (assoc (loophabits--value-arg "Read") state)))))))

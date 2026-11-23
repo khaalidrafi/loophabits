@@ -2,7 +2,7 @@
 
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;; Author: GLM 5.3 <glm-5.3@z.ai>
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: habits, org, tools
 
@@ -33,8 +33,9 @@
 ;;                                  notify) or desktop notifications
 ;;   widgets ...................... three elwidget specs (full list,
 ;;                                  today's checks + progress, measurable
-;;                                  bars) via loophabits-register-widgets,
-;;                                  plus the org-habits delegation
+;;                                  bars with +/- steppers) via
+;;                                  loophabits-register-widgets, plus
+;;                                  the org-habits delegation
 ;;   notes on checkmarks .......... text after the value in the LOGBOOK
 ;;   skip (not applicable) ........ value `s' -- excluded from the
 ;;                                  scoring window, does not break streaks
@@ -85,6 +86,13 @@
 (defcustom loophabits-notify-function #'loophabits--notify
   "How reminders are delivered."
   :type 'function)
+
+(defcustom loophabits-widget-step 1
+  "How much one stepper tap on a widget changes a measurable habit.
+Buttons and the bar itself on the loophabits-progress widget adjust
+today's value by this much per tap (the dashboard `v' command still
+sets exact values)."
+  :type 'number)
 
 ;;; --- Data model ------------------------------------------------------------
 
@@ -506,6 +514,30 @@ nextToggleValue).  Measurable habits jump between 0 and the target."
                          ((equal v 0) 1)
                          (t 1)))))))
 
+(defun loophabits-bump (name delta)
+  "Change habit NAME's value for today by DELTA (widget steppers).
+Measurable habits add DELTA to today's entry, never below zero;
+yes/no habits treat any positive DELTA as done and any negative one
+as not done.  Return the new value.  One stepper tap is
+`loophabits-widget-step'; the dashboard `v' command sets exact
+values."
+  (interactive
+   (let* ((names (mapcar #'lh/habit-name (loophabits-load)))
+          (name (completing-read "Habit: " names nil t)))
+     (list name (read-number "Delta: " loophabits-widget-step))))
+  (let ((habit (loophabits-find name)))
+    (unless habit
+      (error "loophabits: no habit named %s" name))
+    (let ((value
+           (if (memq (lh/habit-type habit)
+                     '(measurable measurable-at-most))
+               (let* ((raw (lh-computed-value habit (lh-today)))
+                      (v (if (numberp raw) raw 0)))
+                 (max 0 (+ v delta)))
+             (if (> delta 0) 1 0))))
+      (loophabits-set habit (lh-today) value)
+      value)))
+
 (defun loophabits-skip (habit)
   "Mark today skipped on HABIT (not applicable: no score change)."
   (loophabits-set habit (lh-today) 'skip))
@@ -878,6 +910,30 @@ nextToggleValue).  Measurable habits jump between 0 and the target."
 ;; else as an ordinary package; nothing here loads without it.
 (declare-function elwidget-define "elwidget" (name &rest props))
 
+(defun loophabits--value-arg (name)
+  "Shadow-state key for habit NAME's numeric today value.
+Distinct from NAME itself (the 0/1 check key), so the steppers'
+  numbers never disturb the checks' instant flips."
+  (concat name "#value"))
+
+(defun loophabits--on-event (action arg)
+  "Handle a widget tap.
+\"toggle\" flips habit ARG (its name, 0/1 checks); \"inc\"/\"dec\"
+adjust the measurable habit behind ARG -- which arrives with the
+#value suffix the stepper nodes use -- by `loophabits-widget-step'."
+  (cond
+   ((equal action "toggle")
+    (loophabits-toggle arg)
+    t)
+   ((member action '("inc" "dec"))
+    (loophabits-bump
+     (if (string-suffix-p "#value" arg)
+         (substring arg 0 (- (length arg) (length "#value")))
+       arg)
+     (* loophabits-widget-step
+        (if (equal action "inc") 1 -1)))
+    t)))
+
 (defun loophabits-elwidget-tree ()
   "The org-habits widget tree (for elwidget-org)."
   (let ((nodes (list '(:text "Habits" :size 16 :bold t :color "#89b4fa"))))
@@ -903,17 +959,24 @@ nextToggleValue).  Measurable habits jump between 0 and the target."
     nodes))
 
 (defun loophabits-elwidget-state ()
-  "Shadow state for the widgets (habit name -> done-today 0/1)."
-  (mapcar (lambda (h)
-            (cons (lh/habit-name h)
-                  (if (lh-completed-p h (lh-today)) 1 0)))
-          (loophabits-load)))
-
-(defun loophabits--on-event (action arg)
-  "Handle a widget tap: \"toggle\" flips habit ARG (its name)."
-  (when (equal action "toggle")
-    (loophabits-toggle arg)
-    t))
+  "Shadow state for the widgets (instant taps, frozen Emacs).
+Each habit contributes its NAME -> done-today 0/1 (the checks,
+flipped 0<->1 by the app on \"toggle\" taps); measurable habits
+additionally contribute NAME#value -> today's numeric value (the
+stepper bars, bumped by the app on \"inc\"/\"dec\" taps and
+re-rendered through the bar's :fmt template)."
+  (mapcan
+   (lambda (h)
+     (let ((numeric (memq (lh/habit-type h)
+                          '(measurable measurable-at-most)))
+           (done (if (lh-completed-p h (lh-today)) 1 0)))
+       (if numeric
+           (let* ((raw (lh-computed-value h (lh-today)))
+                  (v (if (numberp raw) raw 0)))
+             (list (cons (lh/habit-name h) done)
+                   (cons (loophabits--value-arg (lh/habit-name h)) v)))
+         (list (cons (lh/habit-name h) done)))))
+   (loophabits-load)))
 
 (defun loophabits--today-tree ()
   "Compact one-line tree: a tappable check per active habit.
@@ -949,7 +1012,11 @@ count behind a \"+N\" text."
                               :color "#a6adc8")))))))))
 
 (defun loophabits--progress-tree ()
-  "Measurable habits as today's value/target progress bars."
+  "Measurable habits: today's value as a bar with +/- steppers.
+The bar itself is tappable (one step up); its label carries a :fmt
+template the Android side re-renders from the shadow state, so taps
+move the number even while Emacs is frozen in the background -- the
+next Emacs sync is authoritative."
   (let ((nodes (list '(:text "Today" :size 14 :bold t :color "#89b4fa")))
         (any nil))
     (dolist (h (loophabits--active))
@@ -961,17 +1028,25 @@ count behind a \"+N\" text."
                ;; the bar wants today's entered value, 0 otherwise.
                (v (if (numberp raw) raw 0))
                (target (lh/habit-target h))
-               (bar-max (max 1 target)))
+               (bar-max (max 1 target))
+               (varg (loophabits--value-arg (lh/habit-name h)))
+               (fmt (format "{v}/%s %s" target (or (lh/habit-unit h) ""))))
           (nconc nodes
                  (list
-                  `(:row (:text ,(truncate-string-to-width
-                                  (lh/habit-name h) 14 nil nil "...")
-                                :size 12)
-                         (:progress
-                          :value ,(min v bar-max) :max ,bar-max
-                          :label ,(format "%s/%s %s" v target
-                                          (or (lh/habit-unit h) ""))
-                          :color ,(lh/habit-color h))))))))
+                  `(:row
+                    (:button "-" :action "dec" :arg ,varg
+                             :color ,(lh/habit-color h))
+                    (:text ,(truncate-string-to-width
+                             (lh/habit-name h) 12 nil nil "...")
+                           :size 12)
+                    (:progress :value ,v :max ,bar-max
+                               :label ,(replace-regexp-in-string
+                                        "{v}" (format "%s" v) fmt t t)
+                               :fmt ,fmt
+                               :action "inc" :arg ,varg
+                               :color ,(lh/habit-color h))
+                    (:button "+" :action "inc" :arg ,varg
+                             :color ,(lh/habit-color h))))))))
     (unless any
       (nconc nodes (list '(:text "No measurable habits" :size 12))))
     nodes))
@@ -980,13 +1055,17 @@ count behind a \"+N\" text."
 (defun loophabits-register-widgets ()
   "Define the loophabits home-screen widgets (requires elwidget).
 
-Three specs, all tap-to-check with instant shadow-state flips:
+Three specs, all updatable straight from the home screen (ticks
+flip instantly through the shadow state; steppers bump the number
+the moment you tap, and the next Emacs sync is authoritative):
 
   loophabits          4x3  the full habit list (checks, streaks,
                            scores) -- the same tree elwidget-org's
                            org-habits widget delegates to
   loophabits-today    4x1  one row of checks + done/total progress
-  loophabits-progress 4x2  measurable habits as value/target bars
+  loophabits-progress 4x2  measurable habits: value/target bars with
+                           - and + steppers; the bar itself taps as
+                           +1 (`loophabits-widget-step' sets the step)
 
 Call it once from your init (emacshell: after loading loophabits),
 then `M-x elwidget-refresh' and pick the specs in the Android
@@ -1006,7 +1085,9 @@ widget picker."
     :state #'loophabits-elwidget-state)
   (elwidget-define "loophabits-progress"
     :title "Measurable habits today" :size [4 2]
-    :render #'loophabits--progress-tree))
+    :render #'loophabits--progress-tree
+    :on-event #'loophabits--on-event
+    :state #'loophabits-elwidget-state))
 
 ;;; --- Export / import ----------------------------------------------------------
 

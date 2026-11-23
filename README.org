@@ -26,7 +26,7 @@ can read with anything, diff, sync and keep forever.
 | history (365-day grid) | =loophabits-show-details= |
 | per-weekday stats | details buffer, last 12 weeks, due days only |
 | reminders | =:REMINDER: HH:MM= + Android notifications (=loophabits-start-reminders=) |
-| home-screen widgets (tap to check) | three elwidget specs via =loophabits-register-widgets=, plus the =org-habits= delegation |
+| home-screen widgets (tap to check, +/- to edit numbers) | three elwidget specs via =loophabits-register-widgets=, plus the =org-habits= delegation |
 | check marks on the main list | dashboard =SPC= toggle, =s= skip, =v= value, =N= note |
 | archive / reorder / pause | =a= archive, =:ORDER:=, =p= pause (= :PAUSED: yes :) |
 | export (CSV backups) | =loophabits-export-csv= |
@@ -99,15 +99,20 @@ and register the widgets once:
 (elwidget-refresh)
 #+end_src
 
-Three specs land on the home screen, all tap-to-check with instant
-flips (the Android side flips the shadow state; Emacs confirms on
-the next sync):
+Three specs land on the home screen, all updatable right where
+they sit (the Android side flips checks and bumps numbers through
+the shadow state; Emacs confirms on the next sync):
 
 | Spec | Size | Shows |
 |---|---|---|
 | =loophabits= | 4x3 | the full habit list: checks, streaks, scores |
 | =loophabits-today= | 4x1 | one row of checks + a done/total progress bar |
-| =loophabits-progress= | 4x2 | measurable habits as today's value/target bars |
+| =loophabits-progress= | 4x2 | measurable habits: value/target bars with =-= and =+= steppers; the bar itself taps as +1 |
+
+One stepper tap changes today's value by =loophabits-widget-step=
+(default 1, at zero floor); set exact values from the dashboard's
+=v= command.  Yes/no habits tick with a tap anywhere on their
+check.
 
 elwidget's own =org-habits= widget delegates to the same list, so
 both entry points stay in sync (soft dependency: without elwidget
