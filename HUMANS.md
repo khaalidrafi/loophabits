@@ -85,17 +85,17 @@ streaks, per-weekday completion rates, and a 365-day history grid.
 | `loophabits-score` (356) | Day-by-day replay from habit creation to the target date; returns 0-100. |
 | `loophabits-streaks` / `-current-streak` / `-best-streak` (394 / 411 / 424) | Runs of completed days, walking backward from today. |
 | `lh--entry-line` / `loophabits-set` (431 / 444) | Entry formatting and the replace-never-duplicate writer. |
-| `loophabits-toggle` (489) | Loop's nextToggleValue cycle for widget taps and `SPC`. |
-| `loophabits-new` / `-archive` (517 / 553) | Create a habit heading; archive moves it under an Archive heading plus the ARCHIVE tag. |
-| `loophabits--active` / `loophabits--mark` (596 / 605) | Dashboard list (non-archived, ordered) and today's mark glyph. |
-| `loophabits` / `loophabits-refresh` (617 / 653) | The dashboard buffer and forced redisplay. |
-| `loophabits-list-mode` keymap (582) | `SPC` toggle, `s` skip, `v` value, `N` note, `n` new, `RET` details, `a` archive, `p` pause, `o` open file, `g` refresh. |
-| `loophabits-show-details` (758) | Stats + 365-day grid (rows = weeks, cols = weekdays). |
-| `loophabits-start-reminders` / `--remind` / `--notify` (829 / 843 / 864) | 60-second timer; fires when HH:MM matches, due, uncompleted, unpaused, once per day. Notification degrades: Android -> desktop -> message. |
-| `loophabits-elwidget-tree` / `-elwidget-state` (875 / 899) | The widget face of this package (called by elwidget-org's org-habits widget). |
-| `loophabits-export-csv` / `-export-json` / `-import-json` (909 / 925 / 956) | Backups; JSON is the full round-trip format. |
+| `loophabits-toggle` / `loophabits-bump` (499 / 517) | Loop's nextToggleValue cycle for widget taps and `SPC`; the stepper write path (+/- DELTA on today's entry, floored at zero). |
+| `loophabits-new` / `-archive` (551 / 587) | Create a habit heading; archive moves it under an Archive heading plus the ARCHIVE tag. |
+| `loophabits--active` / `loophabits--mark` (630 / 639) | Dashboard list (non-archived, ordered) and today's mark glyph. |
+| `loophabits` / `loophabits-refresh` (651 / 687) | The dashboard buffer and forced redisplay. |
+| `loophabits-list-mode` keymap (616) | `SPC` toggle, `s` skip, `v` value, `N` note, `n` new, `RET` details, `a` archive, `p` pause, `o` open file, `g` refresh. |
+| `loophabits-show-details` (792) | Stats + 365-day grid (rows = weeks, cols = weekdays). |
+| `loophabits-start-reminders` / `--remind` / `--notify` (863 / 877 / 898) | 60-second timer; fires when HH:MM matches, due, uncompleted, unpaused, once per day. Notification degrades: Android -> desktop -> message. |
+| `loophabits--value-arg` / `--on-event` / `-elwidget-tree` / `-elwidget-state` / `--today-tree` / `--progress-tree` / `register-widgets` (913 / 919 / 937 / 961 / 981 / 1014 / 1055) | The widget face of this package: trees, dual-key shadow state (NAME for checks, NAME#value for steppers), inc/dec/toggle tap handling, spec registration (called by elwidget-org's org-habits widget). |
+| `loophabits-export-csv` / `-export-json` / `-import-json` (1095 / 1111 / 1142) | Backups; JSON is the full round-trip format. |
 | `tests/run.el` | Batch runner; loads `tests/test-*.el`, exits 0/1. |
-| `tests/test-loophabits.el` | 21 ERT tests: parsing, set-replaces, computed values, due-ness, score math, streaks, toggle cycles, archive, JSON/CSV round trips, widget tree/state, glyphs. |
+| `tests/test-loophabits.el` | 30 ERT tests: parsing, set-replaces, computed values, due-ness, score math, streaks, toggle cycles, archive, JSON/CSV round trips, widget tree/state, glyphs. |
 
 ## Core algorithms
 
